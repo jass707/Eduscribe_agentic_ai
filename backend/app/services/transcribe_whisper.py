@@ -36,11 +36,23 @@ def _load_model():
 
 def transcribe_local(audio_path: str, beam_size: int = 5) -> Dict[str, Any]:
     """
-    Transcribe an audio file using the (lazy-loaded) faster-whisper model.
+    Transcribe local audio file using faster-whisper with optimized settings.
     Returns a dict with 'text', 'segments', 'language', 'duration', etc.
     """
     model = _load_model()
-    segments, info = model.transcribe(audio_path, beam_size=beam_size)
+    
+    # Optimized transcription settings for better quality
+    segments, info = model.transcribe(
+        audio_path, 
+        beam_size=beam_size,
+        language="en",                    # Force English for better accuracy
+        condition_on_previous_text=True,  # Use context from previous segments
+        temperature=0.0,                  # Deterministic output
+        compression_ratio_threshold=2.4,  # Filter out low-quality segments
+        log_prob_threshold=-1.0,          # Filter based on probability
+        no_speech_threshold=0.6,          # Better silence detection
+        initial_prompt="This is a lecture or educational content with technical terms and academic language."
+    )
 
     transcript_text = ""
     results = []

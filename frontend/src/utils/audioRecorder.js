@@ -19,12 +19,15 @@ class AudioRecorder {
    */
   async initialize() {
     try {
-      // Get microphone access (let browser choose sample rate)
+      // Get microphone access with optimized settings for speech recognition
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true
+          echoCancellation: false,    // Disable for better speech clarity
+          noiseSuppression: false,    // Disable aggressive processing
+          autoGainControl: true,      // Keep automatic gain control
+          sampleRate: 48000,          // Request high quality
+          sampleSize: 16              // 16-bit samples
         }
       })
 
@@ -71,11 +74,21 @@ class AudioRecorder {
       const inputBuffer = event.inputBuffer
       const inputData = inputBuffer.getChannelData(0)
       
-      // Convert Float32Array to Int16Array for WAV
-      const int16Data = new Int16Array(inputData.length)
-      for (let i = 0; i < inputData.length; i++) {
-        // Convert from [-1, 1] to [-32768, 32767]
-        int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767))
+      // Preprocess audio for better quality
+      const processedData = this.preprocessAudio(inputData)
+      
+      // Convert Float32Array to Int16Array with better precision
+      const int16Data = new Int16Array(processedData.length)
+      for (let i = 0; i < processedData.length; i++) {
+        // Improved conversion with dithering to reduce quantization noise
+        let sample = processedData[i] * 32767
+        
+        // Add small amount of dither to reduce quantization artifacts
+        const dither = (Math.random() - 0.5) * 0.5
+        sample += dither
+        
+        // Clamp to valid range
+        int16Data[i] = Math.max(-32768, Math.min(32767, Math.round(sample)))
       }
       
       audioBuffer.push(int16Data)
@@ -160,7 +173,46 @@ class AudioRecorder {
   }
 
   /**
-   * Simple linear interpolation resampling
+   * Preprocess audio for better transcription quality
+   */
+  preprocessAudio(inputData) {
+    const processedData = new Float32Array(inputData.length)
+    
+    // Step 1: Normalize audio levels
+    let maxAmplitude = 0
+    for (let i = 0; i < inputData.length; i++) {
+      maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]))
+    }
+    
+    const normalizeGain = maxAmplitude > 0 ? 0.8 / maxAmplitude : 1
+    
+    // Step 2: Apply normalization and simple high-pass filter
+    let prevSample = 0
+    const highPassAlpha = 0.95 // High-pass filter coefficient
+    
+    for (let i = 0; i < inputData.length; i++) {
+      // Normalize
+      let sample = inputData[i] * normalizeGain
+      
+      // Simple high-pass filter to remove DC offset and low-frequency noise
+      const filtered = highPassAlpha * (prevSample + sample - (i > 0 ? inputData[i-1] * normalizeGain : 0))
+      prevSample = filtered
+      
+      // Soft limiting to prevent clipping
+      if (Math.abs(filtered) > 0.95) {
+        sample = Math.sign(filtered) * (0.95 + 0.05 * Math.tanh((Math.abs(filtered) - 0.95) * 10))
+      } else {
+        sample = filtered
+      }
+      
+      processedData[i] = sample
+    }
+    
+    return processedData
+  }
+
+  /**
+   * High-quality resampling with anti-aliasing filter
    */
   resampleAudio(inputBuffer, inputSampleRate, outputSampleRate) {
     if (inputSampleRate === outputSampleRate) {
@@ -171,19 +223,30 @@ class AudioRecorder {
     const outputLength = Math.round(inputBuffer.length / ratio)
     const outputBuffer = new Int16Array(outputLength)
 
+    // Simple low-pass filter to prevent aliasing
+    const filterSize = 4
+    const halfFilter = Math.floor(filterSize / 2)
+
     for (let i = 0; i < outputLength; i++) {
       const inputIndex = i * ratio
       const inputIndexFloor = Math.floor(inputIndex)
-      const inputIndexCeil = Math.min(inputIndexFloor + 1, inputBuffer.length - 1)
       
-      // Linear interpolation
-      const fraction = inputIndex - inputIndexFloor
-      const sample1 = inputBuffer[inputIndexFloor] || 0
-      const sample2 = inputBuffer[inputIndexCeil] || 0
+      // Apply simple averaging filter for better quality
+      let sum = 0
+      let count = 0
       
-      outputBuffer[i] = Math.round(sample1 + (sample2 - sample1) * fraction)
+      for (let j = -halfFilter; j <= halfFilter; j++) {
+        const sampleIndex = inputIndexFloor + j
+        if (sampleIndex >= 0 && sampleIndex < inputBuffer.length) {
+          sum += inputBuffer[sampleIndex]
+          count++
+        }
+      }
+      
+      outputBuffer[i] = count > 0 ? Math.round(sum / count) : 0
     }
 
+    console.log(`🔄 High-quality resampling: ${inputSampleRate}Hz → ${outputSampleRate}Hz`)
     return outputBuffer
   }
 
