@@ -49,7 +49,7 @@ class AudioRecorder {
   /**
    * Start recording audio
    */
-  async startRecording(onDataCallback, chunkDurationMs = 5000) {
+  async startRecording(onDataCallback, chunkDurationMs = 20000) {
     if (!this.audioContext || !this.mediaStream) {
       throw new Error('Audio recorder not initialized')
     }

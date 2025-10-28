@@ -29,7 +29,8 @@ class Settings(BaseSettings):
     
     # Audio Processing
     AUDIO_SAMPLE_RATE: int = 16000
-    CHUNK_DURATION: int = 20  # seconds
+    CHUNK_DURATION: int = 20  # seconds (optimized for better transcription)
+    SYNTHESIS_INTERVAL: int = 60  # seconds (3 chunks for structured notes)
     
     # RAG Settings
     FAISS_TOP_K: int = 3

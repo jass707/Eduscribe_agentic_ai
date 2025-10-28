@@ -158,37 +158,57 @@ export default function LiveLecture() {
       const data = JSON.parse(event.data)
       console.log('Received WebSocket message:', data)
       
-      if (data.type === 'live_update') {
-        console.log('Processing live update:', data)
-        // Add new live note
+      if (data.type === 'transcription') {
+        // Real-time transcription (every 20 seconds)
+        console.log('📝 Transcription received:', data.content)
+        
+        setTranscriptionChunks(prev => [...prev, {
+          id: data.timestamp,
+          timestamp: new Date(data.timestamp).toLocaleTimeString(),
+          text: data.content,
+          chunk_number: data.chunk_number,
+          processed: false
+        }])
+        
+        toast.success(`Transcription ${data.chunk_number} complete`, { duration: 2000 })
+        
+      } else if (data.type === 'synthesis_started') {
+        console.log('🤖 Synthesis started')
+        toast.loading('Generating structured notes...', { id: 'synthesis' })
+        
+      } else if (data.type === 'structured_notes') {
+        // Structured notes (every 60 seconds)
+        console.log('📚 Structured notes received:', data.content)
+        
         const newNote = {
-          id: Date.now(),
-          timestamp: data.timestamp,
-          transcription: data.transcription,
-          notes: data.notes,
-          importance_score: data.importance_score,
+          id: data.timestamp,
+          timestamp: new Date(data.timestamp).toLocaleTimeString(),
+          content: data.content,
+          transcription_count: data.transcription_count,
           created_at: new Date().toISOString()
         }
         
-        setLiveNotes(prev => {
-          const updated = [...prev, newNote]
-          console.log('Updated live notes:', updated)
-          return updated
-        })
+        setLiveNotes(prev => [...prev, newNote])
         
-        // Add to transcription chunks
-        if (data.transcription) {
-          setTranscriptionChunks(prev => [...prev, {
-            id: Date.now(),
-            timestamp: data.timestamp,
-            text: data.transcription.text,
-            importance: data.importance_score
-          }])
-        }
+        // Mark transcriptions as processed
+        setTranscriptionChunks(prev => prev.map(chunk => ({
+          ...chunk,
+          processed: true
+        })))
+        
+        toast.success('Structured notes generated!', { id: 'synthesis', duration: 3000 })
+        
+      } else if (data.type === 'synthesis_error') {
+        console.error('Synthesis error:', data.error)
+        toast.error('Error generating notes', { id: 'synthesis' })
+        
       } else if (data.type === 'connection_confirmed') {
         console.log('WebSocket connection confirmed')
+        toast.success('Connected to server')
+        
       } else if (data.type === 'recording_started') {
         console.log('Recording started confirmation received')
+        
       } else if (data.type === 'recording_stopped') {
         console.log('Recording stopped confirmation received')
       }
@@ -255,8 +275,8 @@ export default function LiveLecture() {
         }
       }
       
-      // Start recording with 5-second chunks
-      await audioRecorder.startRecording(handleAudioChunk, 5000)
+      // Start recording with 20-second chunks for better transcription
+      await audioRecorder.startRecording(handleAudioChunk, 20000)
       
       setIsRecording(true)
       toast.success('Recording started with Web Audio API - crystal clear WAV!')
@@ -535,26 +555,52 @@ export default function LiveLecture() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
-                {liveNotes.map((note) => (
-                  <div key={note.id} className="bg-white p-4 rounded-lg border border-secondary-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-secondary-500 font-mono">{note.timestamp}</span>
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${note.importance_score > 0.7 ? 'bg-red-500' : note.importance_score > 0.4 ? 'bg-yellow-500' : 'bg-green-500'}`} />
-                        <span className="text-xs text-secondary-500">
-                          {Math.round(note.importance_score * 100)}% importance
-                        </span>
-                      </div>
+              <div className="space-y-6">
+                {/* Transcriptions Section */}
+                {transcriptionChunks.length > 0 && (
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <h3 className="text-sm font-semibold text-blue-900 mb-3 flex items-center">
+                      <Activity className="w-4 h-4 mr-2" />
+                      Real-time Transcriptions
+                    </h3>
+                    <div className="space-y-2">
+                      {transcriptionChunks.slice(-3).map((chunk) => (
+                        <div key={chunk.id} className={`p-3 rounded ${chunk.processed ? 'bg-white' : 'bg-blue-100'}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-blue-600 font-mono">
+                              {chunk.timestamp} - Chunk #{chunk.chunk_number}
+                            </span>
+                            {!chunk.processed && (
+                              <span className="text-xs text-blue-500 animate-pulse">Processing...</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-secondary-700">{chunk.text}</p>
+                        </div>
+                      ))}
                     </div>
-                    <div className="text-secondary-800 whitespace-pre-line">{note.notes}</div>
-                    {note.transcription && (
-                      <div className="mt-2 pt-2 border-t border-secondary-100">
-                        <p className="text-xs text-secondary-500 italic">
-                          "{note.transcription.text}"
-                        </p>
-                      </div>
-                    )}
+                  </div>
+                )}
+                
+                {/* Structured Notes Section */}
+                {liveNotes.map((note) => (
+                  <div key={note.id} className="bg-gradient-to-br from-white to-secondary-50 p-6 rounded-lg border-2 border-primary-200 shadow-md">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs text-secondary-500 font-mono flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {note.timestamp}
+                      </span>
+                      <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded-full">
+                        📚 Synthesized from {note.transcription_count} chunks
+                      </span>
+                    </div>
+                    <div className="prose prose-sm max-w-none">
+                      <div 
+                        className="text-secondary-800" 
+                        dangerouslySetInnerHTML={{ 
+                          __html: note.content.replace(/\n/g, '<br/>').replace(/##\s/g, '<h2 class="text-lg font-bold mt-3 mb-2">').replace(/###\s/g, '<h3 class="text-md font-semibold mt-2 mb-1">').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                        }}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
